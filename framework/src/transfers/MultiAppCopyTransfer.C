@@ -19,11 +19,14 @@ defineLegacyParams(MultiAppCopyTransfer);
 InputParameters
 MultiAppCopyTransfer::validParams()
 {
+  MooseEnum reduction_types("COPY SUM AVG", "COPY");
+
   InputParameters params = MultiAppFieldTransfer::validParams();
   params.addRequiredParam<std::vector<AuxVariableName>>(
       "variable", "The auxiliary variable to store the transferred values in.");
   params.addRequiredParam<std::vector<VariableName>>("source_variable",
                                                      "The variable to transfer from.");
+  params.addParam<MooseEnum>("reduction",reduction_types, "The type of reduction to perform on the multiapps.");
 
   params.addClassDescription(
       "Copies variables (nonlinear and auxiliary) between multiapps that have identical meshes.");
@@ -33,11 +36,15 @@ MultiAppCopyTransfer::validParams()
 MultiAppCopyTransfer::MultiAppCopyTransfer(const InputParameters & parameters)
   : MultiAppFieldTransfer(parameters),
     _from_var_names(getParam<std::vector<VariableName>>("source_variable")),
-    _to_var_names(getParam<std::vector<AuxVariableName>>("variable"))
+    _to_var_names(getParam<std::vector<AuxVariableName>>("variable")),
+    _reduction_type(getParam<MooseEnum>("reduction").getEnum<ReductionType>())
 {
   /* Right now, most of transfers support one variable only */
   _to_var_name = _to_var_names[0];
   _from_var_name = _from_var_names[0];
+
+  if (_reduction_type == ReductionType::AVG)
+    paramError("reduction", "AVG reduction type is not currently supported");
 }
 
 void
@@ -62,4 +69,30 @@ MultiAppCopyTransfer::execute()
   }
 
   _console << "Finished MultiAppCopyTransfer " << name() << std::endl;
+}
+
+void
+MultiAppCopyTransfer::transferDofObject(libMesh::DofObject * to_object,
+                                         libMesh::DofObject * from_object,
+                                         MooseVariableFEBase & to_var,
+                                         MooseVariableFEBase & from_var,
+                                         NumericVector<Number> & to_solution,
+                                         NumericVector<Number> & from_solution)
+{
+  for (unsigned int vc = 0; vc < to_var.count(); ++vc)
+    if (to_object->n_dofs(to_var.sys().number(), to_var.number() + vc) >
+        0) // If this variable has dofs at this node
+      for (unsigned int comp = 0;
+           comp < to_object->n_comp(to_var.sys().number(), to_var.number() + vc);
+           ++comp)
+      {
+        dof_id_type dof = to_object->dof_number(to_var.sys().number(), to_var.number() + vc, comp);
+        dof_id_type from_dof =
+            from_object->dof_number(from_var.sys().number(), from_var.number() + vc, comp);
+        Real from_value = from_solution(from_dof);
+        if (_reduction_type == ReductionType::COPY)
+            to_solution.set(dof, from_value);
+        else if (_reduction_type == ReductionType::SUM)
+            to_solution.set(dof, (to_solution(dof) + from_value)/_multi_app->numGlobalApps());
+      }
 }

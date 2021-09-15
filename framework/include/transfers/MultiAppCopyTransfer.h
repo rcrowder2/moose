@@ -32,6 +32,13 @@ public:
    */
   virtual void execute() override;
 
+  void transferDofObject(libMesh::DofObject * to_object,
+                         libMesh::DofObject * from_object,
+                         MooseVariableFieldBase & to_var,
+                         MooseVariableFieldBase & from_var,
+                         NumericVector<Number> & to_solution,
+                         NumericVector<Number> & from_solution);
+
 protected:
   virtual std::vector<VariableName> getFromVarNames() const override { return _from_var_names; }
   virtual std::vector<AuxVariableName> getToVarNames() const override { return _to_var_names; }
@@ -40,6 +47,8 @@ protected:
   const std::vector<VariableName> _from_var_names;
   /// Name of variables transfering to
   const std::vector<AuxVariableName> _to_var_names;
+  /// Enum used to define the type of reduction performed
+  const enum class ReductionType { COPY, SUM, AVG } _reduction_type;
 
   /// This values are used if a derived class only supports one variable
   VariableName _from_var_name;
